@@ -570,29 +570,10 @@ void identificarEleitor() {
     return;
   }
 
-  String nomeEleitor;
-  String motivoNegacao;
-  if (!autenticarNoServidor(fingerID, nomeEleitor, motivoNegacao)) {
-    motivoNegacao.replace(":", "-");
-    motivoNegacao.replace("\n", " ");
-    motivoNegacao.replace("\r", " ");
-    Serial.println("RES:IDENTIFY_SCAN:ERROR:" + motivoNegacao);
-    // Mostra motivo no LCD (ex: "Voto ja realizado")
-    String lcd2 = motivoNegacao.substring(0, 16);
-    lcdMsg("Nao autorizado", lcd2.c_str());
-    piscarLED(LED_ERROR, 2, 200);
-    delay(2000);
-    lcdMsg("Coloque o dedo", "para votar");
-    return;
-  }
-
-  nomeEleitor.replace(":", "-");
-  nomeEleitor.replace("\n", " ");
-  nomeEleitor.replace("\r", " ");
-  Serial.println("RES:IDENTIFY_SCAN:OK:" + String(fingerID) + ":" + nomeEleitor);
-  lcdMsg("Identificado:", nomeEleitor.c_str());
-  delay(2000);
-  lcdMsg("Coloque o dedo", "para votar");
+  // Apenas retorna o fingerID — a validação (já votou, etc.)
+  // é feita pela API no endpoint /vote/identify.
+  Serial.println("RES:IDENTIFY_SCAN:OK:" + String(fingerID) + ":");
+  lcdMsg("Digital lida", "A verificar...");
 }
 
 // ================= VOTAÇÃO COM ENTIDADE PRÉ-DEFINIDA (VOTE_SCAN) =================
@@ -609,7 +590,6 @@ void votarComEntidadePredefinida(int entityID) {
   int fingerID = capturarDigitalComTimeout(45000UL, &erroBio);
 
   if (fingerID == -2) {
-    // Digital lida mas não encontrada no sensor — pode ser dedo mal colocado
     lcdMsg("Digital nao", "reconhecida");
     piscarLED(LED_ERROR, 3, 200);
     Serial.println("RES:VOTE_SCAN:ERROR:DIGITAL_NAO_CADASTRADA");
@@ -632,46 +612,9 @@ void votarComEntidadePredefinida(int entityID) {
     return;
   }
 
-  lcdMsg("Verificando...", "");
-
-  String nomeEleitor;
-  String motivoNegacao;
-  if (!autenticarNoServidor(fingerID, nomeEleitor, motivoNegacao)) {
-    // Mostra o motivo real da API (ex: "Voto ja realizado")
-    String lcd2 = motivoNegacao.substring(0, 16);
-    lcdMsg("Nao autorizado", lcd2.c_str());
-    piscarLED(LED_ERROR, 3, 200);
-    motivoNegacao.replace(":", "-");
-    motivoNegacao.replace("\n", " ");
-    motivoNegacao.replace("\r", " ");
-    Serial.println("RES:VOTE_SCAN:ERROR:" + motivoNegacao);
-    delay(2000);
-    lcdMsg("Coloque o dedo", "para votar");
-    return;
-  }
-
-  lcdMsg("Registando...", nomeEleitor.c_str());
-
-  if (!registrarVoto(fingerID, entityID)) {
-    piscarLED(LED_ERROR, 3, 200);
-    Serial.println("RES:VOTE_SCAN:ERROR:ERRO_REGISTO");
-    lcdMsg("Erro no registo", "Tente novamente");
-    delay(2000);
-    lcdMsg("Coloque o dedo", "para votar");
-    return;
-  }
-
-  lcdMsg("Voto registado!", nomeEleitor.c_str());
-  piscarLED(LED_OK, 3, 300);
-
-  // Sanitiza o nome (remove ':' e '\n') antes de enviar
-  nomeEleitor.replace(":", "-");
-  nomeEleitor.replace("\n", " ");
-  nomeEleitor.replace("\r", " ");
-
-  Serial.println("RES:VOTE_SCAN:OK:" + nomeEleitor);
-  delay(3000);
-  lcdMsg("Coloque o dedo", "para votar");
+  // Retorna o fingerID — a API regista o voto e valida se já votou.
+  lcdMsg("Digital lida", "A registar...");
+  Serial.println("RES:VOTE_SCAN:OK:" + String(fingerID));
 }
 
 // ================= SETUP =================
@@ -749,8 +692,10 @@ void loop() {
 
     if (cmd.startsWith("INFO:")) {
       String nomeInfo = cmd.substring(5, 21);
-      lcdMsg("Novo Eleitor:", nomeInfo.c_str());
+      lcdMsg("Voto registado!", nomeInfo.c_str());
+      piscarLED(LED_OK, 3, 300);
       delay(3000);
+      lcdMsg("Coloque o dedo", "para votar");
       return;
     }
   }

@@ -30,8 +30,8 @@ public class VoteController : ControllerBase
 
     /// <summary>
     /// Inicia uma sessão de votação a partir do painel MAUI.
-    /// O eleitor escolhe a entidade no ecrã e coloca o dedo no sensor.
-    /// Bloqueia até o ESP32 confirmar o voto (max 35 s).
+    /// Envia a entidade ao ESP32, que captura a digital e retorna o fingerID.
+    /// A API regista o voto e valida se o eleitor já votou.
     /// </summary>
     [HttpPost("initiate")]
     public async Task<IActionResult> Initiate([FromBody] InitiateVoteRequest req, CancellationToken ct)
@@ -45,7 +45,21 @@ public class VoteController : ControllerBase
 
         if (result.StartsWith("RES:VOTE_SCAN:OK:"))
         {
-            var voterName = result["RES:VOTE_SCAN:OK:".Length..];
+            var fingerIdStr = result["RES:VOTE_SCAN:OK:".Length..].Trim();
+            if (!int.TryParse(fingerIdStr, out int fingerId))
+                return BadRequest(new { sucesso = false, mensagem = "Resposta biométrica inválida." });
+
+            // Registar o voto na API
+            var (success, message) = await _svc.CastVoteAsync(fingerId, req.EntityId);
+            if (!success)
+                return BadRequest(new { sucesso = false, mensagem = message });
+
+            var voter = await _svc.GetVoterByFingerAsync(fingerId);
+            var voterName = voter?.Name ?? "Eleitor";
+
+            // Envia feedback ao ESP32 para mostrar no LCD
+            _serial.Send($"INFO:{voterName}");
+
             return Ok(new { sucesso = true, nomeEleitor = voterName });
         }
 
