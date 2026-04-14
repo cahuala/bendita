@@ -535,6 +535,8 @@ void identificarEleitor() {
   if (!sensorReady && !initFingerprintSensor()) {
     Serial.println("RES:IDENTIFY_SCAN:ERROR:SENSOR_OFFLINE");
     lcdMsg("Erro sensor", "AS608 offline");
+    delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -547,6 +549,8 @@ void identificarEleitor() {
     Serial.println("RES:IDENTIFY_SCAN:ERROR:DIGITAL_NAO_CADASTRADA");
     lcdMsg("Digital nao", "reconhecida");
     piscarLED(LED_ERROR, 2, 200);
+    delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -561,6 +565,8 @@ void identificarEleitor() {
     }
 
     piscarLED(LED_ERROR, 2, 200);
+    delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -571,7 +577,12 @@ void identificarEleitor() {
     motivoNegacao.replace("\n", " ");
     motivoNegacao.replace("\r", " ");
     Serial.println("RES:IDENTIFY_SCAN:ERROR:" + motivoNegacao);
+    // Mostra motivo no LCD (ex: "Voto ja realizado")
+    String lcd2 = motivoNegacao.substring(0, 16);
+    lcdMsg("Nao autorizado", lcd2.c_str());
     piscarLED(LED_ERROR, 2, 200);
+    delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -579,6 +590,9 @@ void identificarEleitor() {
   nomeEleitor.replace("\n", " ");
   nomeEleitor.replace("\r", " ");
   Serial.println("RES:IDENTIFY_SCAN:OK:" + String(fingerID) + ":" + nomeEleitor);
+  lcdMsg("Identificado:", nomeEleitor.c_str());
+  delay(2000);
+  lcdMsg("Coloque o dedo", "para votar");
 }
 
 // ================= VOTAÇÃO COM ENTIDADE PRÉ-DEFINIDA (VOTE_SCAN) =================
@@ -600,6 +614,7 @@ void votarComEntidadePredefinida(int entityID) {
     piscarLED(LED_ERROR, 3, 200);
     Serial.println("RES:VOTE_SCAN:ERROR:DIGITAL_NAO_CADASTRADA");
     delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -613,6 +628,7 @@ void votarComEntidadePredefinida(int entityID) {
     piscarLED(LED_ERROR, 3, 200);
     Serial.println("RES:VOTE_SCAN:ERROR:" + (erroBio.length() > 0 ? erroBio : "TIMEOUT"));
     delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -630,6 +646,7 @@ void votarComEntidadePredefinida(int entityID) {
     motivoNegacao.replace("\r", " ");
     Serial.println("RES:VOTE_SCAN:ERROR:" + motivoNegacao);
     delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -638,7 +655,9 @@ void votarComEntidadePredefinida(int entityID) {
   if (!registrarVoto(fingerID, entityID)) {
     piscarLED(LED_ERROR, 3, 200);
     Serial.println("RES:VOTE_SCAN:ERROR:ERRO_REGISTO");
+    lcdMsg("Erro no registo", "Tente novamente");
     delay(2000);
+    lcdMsg("Coloque o dedo", "para votar");
     return;
   }
 
@@ -652,6 +671,7 @@ void votarComEntidadePredefinida(int entityID) {
 
   Serial.println("RES:VOTE_SCAN:OK:" + nomeEleitor);
   delay(3000);
+  lcdMsg("Coloque o dedo", "para votar");
 }
 
 // ================= SETUP =================
@@ -752,10 +772,13 @@ void loop() {
     return;
   }
 
-  lcdMsg("Coloque o dedo", "");
+  lcdMsg("Coloque o dedo", "para votar");
 
   int fingerID = capturarDigital();
-  if (fingerID < 0) return;
+  if (fingerID < 0) {
+    delay(100);
+    return;
+  }
 
   lcdMsg("Verificando...", "");
 
