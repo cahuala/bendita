@@ -7,17 +7,15 @@ namespace BeneditaUI.Services;
 public class ApiService
 {
     private HttpClient _http;
-    private readonly IHttpClientFactory _factory;
 
     private static readonly JsonSerializerOptions _json = new()
     {
         PropertyNameCaseInsensitive = true
     };
 
-    public ApiService(HttpClient http, IHttpClientFactory factory)
+    public ApiService(HttpClient http)
     {
         _http = http;
-        _factory = factory;
     }
 
     // ── VOTERS ────────────────────────────────────────────────
@@ -253,13 +251,13 @@ public class ApiService
         if (!url.EndsWith('/')) url += '/';
         Preferences.Set("ApiBaseUrl", url);
 
-        // Criar novo HttpClient porque BaseAddress não pode ser alterado
-        // depois que o client já fez requisições.
-        // Usa CreateClient com o nome registado para herdar o handler pipeline,
-        // mas BaseAddress e Timeout precisam ser reaplicados manualmente.
-        var newClient = _factory.CreateClient(nameof(ApiService));
-        newClient.BaseAddress = new Uri(url);
-        newClient.Timeout = TimeSpan.FromSeconds(40);
+        // Criar novo HttpClient com a nova URL.
+        // O antigo será descartado pelo GC.
+        var newClient = new HttpClient
+        {
+            BaseAddress = new Uri(url),
+            Timeout = TimeSpan.FromSeconds(40)
+        };
         _http = newClient;
     }
 

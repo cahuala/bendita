@@ -24,7 +24,7 @@ public static class MauiProgram
 #endif
 
         // ── HTTP / API ────────────────────────────────────────
-        builder.Services.AddHttpClient<ApiService>(nameof(ApiService), client =>
+        builder.Services.AddHttpClient<ApiService>(client =>
         {
             client.BaseAddress = new Uri(
                 Preferences.Get("ApiBaseUrl", "http://localhost:5000/"));
