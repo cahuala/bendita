@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="BeneditaUI.Views.VotingPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:model="clr-namespace:BeneditaUI.Models"
+    x:Name="VotingRoot"
+    Title="Votação"
+    BackgroundColor="{StaticResource Background}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="28,24" Spacing="16" MaximumWidthRequest="980">
+
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                <VerticalStackLayout Spacing="2">
+                    <Label Text="Votação" Style="{StaticResource PageTitle}" />
+                    <Label
+                        Text="Leitura biométrica, escolha da entidade e confirmação do voto"
+                        Style="{StaticResource Caption}" />
+                </VerticalStackLayout>
+                <Button
+                    Grid.Column="1"
+                    Text="Atualizar"
+                    Command="{Binding LoadCommand}"
+                    Style="{StaticResource SecondaryButton}" />
+            </Grid>
+
+            <Frame Style="{StaticResource CardFrame}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Fase 1: Identificar Eleitor" Style="{StaticResource SectionHeader}" />
+
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="BI (opcional)" Style="{StaticResource FieldLabel}" />
+                        <Frame Style="{StaticResource FieldFrame}">
+                            <Entry
+                                Text="{Binding BiInput}"
+                                Placeholder="Se informar BI, será validado com a digital"
+                                IsEnabled="{Binding IdentificationPassed, Converter={StaticResource InverseBoolConverter}}" />
+                        </Frame>
+                    </VerticalStackLayout>
+
+                    <Button
+                        Text="Ler impressão digital"
+                        Command="{Binding SubmitIdentificationCommand}"
+                        IsEnabled="{Binding CanSubmitIdentification}" />
+
+                    <Frame
+                        Style="{StaticResource FeedbackFrame}"
+                        BackgroundColor="{Binding IdentificationMessageColor}"
+                        BorderColor="Transparent">
+                        <Label
+                            Text="{Binding IdentificationMessage}"
+                            TextColor="White"
+                            FontAttributes="Bold" />
+                    </Frame>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame Style="{StaticResource CardFrame}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Fase 2: Escolha da Entidade" Style="{StaticResource SectionHeader}" />
+                    <Label Text="{Binding PartyInfoMessage}" Style="{StaticResource Caption}" />
+
+                    <CollectionView
+                        ItemsSource="{Binding PartyOptions}"
+                        SelectionMode="None"
+                        EmptyView="Nenhum partido disponível.">
+                        <CollectionView.ItemsLayout>
+                            <GridItemsLayout Orientation="Vertical" Span="3" HorizontalItemSpacing="10" VerticalItemSpacing="10" />
+                        </CollectionView.ItemsLayout>
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="model:VotingPartyOption">
+                                <Frame
+                                    CornerRadius="14"
+                                    Padding="12"
+                                    HasShadow="True"
+                                    BackgroundColor="{Binding CardColor}"
+                                    BorderColor="{Binding BorderColor}">
+                                    <VerticalStackLayout Spacing="8">
+                                        <Label
+                                            Text="{Binding Acronym}"
+                                            FontSize="24"
+                                            FontAttributes="Bold"
+                                            HorizontalOptions="Center"
+                                            TextColor="{Binding TitleColor}" />
+                                        <Label
+                                            Text="{Binding Name}"
+                                            HorizontalTextAlignment="Center"
+                                            FontSize="12"
+                                            MaxLines="2" />
+                                        <Label
+                                            Text="{Binding VoteCount, StringFormat='Votos: {0}'}"
+                                            HorizontalOptions="Center"
+                                            FontAttributes="Bold" />
+                                        <Button
+                                            Text="Selecionar"
+                                            Command="{Binding Source={x:Reference VotingRoot}, Path=BindingContext.SelectPartyCommand}"
+                                            CommandParameter="{Binding .}"
+                                            IsEnabled="{Binding IsDisabled, Converter={StaticResource InverseBoolConverter}}"
+                                            Style="{StaticResource SecondaryButton}" />
+                                    </VerticalStackLayout>
+                                </Frame>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </VerticalStackLayout>
+            </Frame>
+
+            <Frame Style="{StaticResource CardFrame}">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Fase 3: Confirmar Voto" Style="{StaticResource SectionHeader}" />
+
+                    <ActivityIndicator
+                        IsVisible="{Binding IsScanning}"
+                        IsRunning="{Binding IsScanning}"
+                        Color="{StaticResource Primary}" />
+
+                    <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                        <Button
+                            Text="Confirmar voto"
+                            Command="{Binding ConfirmVoteCommand}"
+                            IsEnabled="{Binding CanConfirmOrCancel}" />
+                        <Button
+                            Grid.Column="1"
+                            Text="Cancelar voto"
+                            Command="{Binding CancelVoteCommand}"
+                            IsEnabled="{Binding CanConfirmOrCancel}"
+                            Style="{StaticResource DangerButton}" />
+                    </Grid>
+
+                    <Frame
+                        Style="{StaticResource FeedbackFrame}"
+                        BackgroundColor="{Binding SessionResultColor}"
+                        BorderColor="Transparent"
+                        IsVisible="{Binding SessionResultMessage, Converter={StaticResource NullToBoolConverter}}">
+                        <VerticalStackLayout Spacing="4">
+                            <Label
+                                Text="{Binding SessionResultTitle}"
+                                TextColor="White"
+                                FontAttributes="Bold"
+                                FontSize="14" />
+                            <Label
+                                Text="{Binding SessionResultMessage}"
+                                TextColor="White"
+                                FontSize="12" />
+                        </VerticalStackLayout>
+                    </Frame>
+
+                    <Button
+                        Text="Nova sessão"
+                        Command="{Binding NewSessionCommand}"
+                        Style="{StaticResource SecondaryButton}" />
+                </VerticalStackLayout>
+            </Frame>
+
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

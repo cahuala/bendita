@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
+
+    <!-- SVB - Black/Blue Theme -->
+
+    <Color x:Key="Primary">#0A84FF</Color>
+    <Color x:Key="PrimaryDark">#005FCC</Color>
+    <Color x:Key="PrimaryLight">#4DA3FF</Color>
+    <Color x:Key="PrimaryUltraLight">#0E1A33</Color>
+
+    <Color x:Key="Accent">#2B6CFF</Color>
+    <Color x:Key="AccentLight">#76A9FF</Color>
+
+    <Color x:Key="Success">#1E90FF</Color>
+    <Color x:Key="SuccessLight">#102748</Color>
+    <Color x:Key="Warning">#3B82F6</Color>
+    <Color x:Key="WarningLight">#132A4A</Color>
+    <Color x:Key="Danger">#1D4ED8</Color>
+    <Color x:Key="DangerLight">#0E1F44</Color>
+    <Color x:Key="Info">#60A5FA</Color>
+    <Color x:Key="InfoLight">#132C4F</Color>
+    <Color x:Key="Enroll">#2563EB</Color>
+    <Color x:Key="EnrollLight">#112544</Color>
+
+    <Color x:Key="Cream">#05070F</Color>
+    <Color x:Key="CreamMid">#0A0F1F</Color>
+    <Color x:Key="CreamDark">#111A30</Color>
+
+    <Color x:Key="Background">#05070F</Color>
+    <Color x:Key="Surface">#0C1324</Color>
+    <Color x:Key="SurfaceWarm">#101A30</Color>
+
+    <Color x:Key="SidebarBg">#070B16</Color>
+    <Color x:Key="SidebarText">#FFFFFF</Color>
+    <Color x:Key="SidebarMuted">#AFC8FF</Color>
+    <Color x:Key="SidebarActive">#102448</Color>
+
+    <Color x:Key="OnSurface">#FFFFFF</Color>
+    <Color x:Key="OnSurfaceMuted">#D3E4FF</Color>
+    <Color x:Key="OnPrimary">#FFFFFF</Color>
+
+    <Color x:Key="Border">#24406B</Color>
+    <Color x:Key="BorderLight">#1B3254</Color>
+
+</ResourceDictionary>

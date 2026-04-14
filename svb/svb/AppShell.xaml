@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="BeneditaUI.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:views="clr-namespace:BeneditaUI.Views"
+    Title="SVB"
+    FlyoutBehavior="Flyout"
+    FlyoutWidth="240"
+    FlyoutBackgroundColor="{StaticResource SidebarBg}"
+    ForegroundColor="{StaticResource SidebarText}"
+    UnselectedColor="{StaticResource SidebarText}"
+    Shell.NavBarIsVisible="True"
+    BackgroundColor="{StaticResource Background}">
+
+    <Shell.FlyoutHeader>
+        <VerticalStackLayout
+            BackgroundColor="{StaticResource SidebarBg}"
+            Padding="24,32,24,20"
+            Spacing="4">
+            <Frame
+                BackgroundColor="{StaticResource SidebarActive}"
+                CornerRadius="14"
+                Padding="0"
+                WidthRequest="52"
+                HeightRequest="52"
+                HasShadow="False"
+                BorderColor="{StaticResource Primary}"
+                HorizontalOptions="Start">
+                <Label
+                    Text=""
+                    FontSize="26"
+                    HorizontalOptions="Center"
+                    VerticalOptions="Center" />
+            </Frame>
+            <Label
+                Text="SVB"
+                TextColor="White"
+                FontSize="20"
+                FontAttributes="Bold"
+                Margin="0,10,0,0" />
+            <Label
+                Text="Sistema de Votação"
+                TextColor="White"
+                FontSize="11"
+                CharacterSpacing="0.5" />
+            <BoxView Color="{StaticResource Border}" HeightRequest="1" Margin="0,16,0,0" />
+        </VerticalStackLayout>
+    </Shell.FlyoutHeader>
+
+    <FlyoutItem Title="Dashboard" Route="dashboard">
+        <FlyoutItem.Icon>
+            <FontImageSource Glyph="" FontFamily="OpenSansRegular" Size="18" />
+        </FlyoutItem.Icon>
+        <ShellContent Title="Dashboard" ContentTemplate="{DataTemplate views:DashboardPage}" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Eleitores" Route="voters">
+        <FlyoutItem.Icon>
+            <FontImageSource Glyph="" FontFamily="OpenSansRegular" Size="18" />
+        </FlyoutItem.Icon>
+        <ShellContent Title="Eleitores" ContentTemplate="{DataTemplate views:VotersPage}" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Entidades" Route="entities">
+        <FlyoutItem.Icon>
+            <FontImageSource Glyph="" FontFamily="OpenSansRegular" Size="18" />
+        </FlyoutItem.Icon>
+        <ShellContent Title="Entidades" ContentTemplate="{DataTemplate views:EntitiesPage}" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Votação" Route="voting">
+        <FlyoutItem.Icon>
+            <FontImageSource Glyph="" FontFamily="OpenSansRegular" Size="18" />
+        </FlyoutItem.Icon>
+        <ShellContent Title="Votação" ContentTemplate="{DataTemplate views:VotingPage}" />
+    </FlyoutItem>
+
+    <FlyoutItem Title="Configurações" Route="settings">
+        <FlyoutItem.Icon>
+            <FontImageSource Glyph="" FontFamily="OpenSansRegular" Size="18" />
+        </FlyoutItem.Icon>
+        <ShellContent Title="Configurações" ContentTemplate="{DataTemplate views:SettingsPage}" />
+    </FlyoutItem>
+
+    <Shell.FlyoutFooter>
+        <VerticalStackLayout BackgroundColor="{StaticResource SidebarBg}" Padding="24,16">
+            <BoxView Color="{StaticResource Border}" HeightRequest="1" Margin="0,0,0,14" />
+            <Label
+                Text="v2.0    Admin"
+                TextColor="White"
+                FontSize="11"
+                HorizontalOptions="Center" />
+        </VerticalStackLayout>
+    </Shell.FlyoutFooter>
+
+</Shell>

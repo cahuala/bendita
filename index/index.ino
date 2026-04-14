@@ -1,0 +1,787 @@
+/*
+ * Sistema de Votação Biométrica — ESP32
+ * Comunicação com a API C# via Serial USB (115200 baud)
+ *
+ * Protocolo:
+ *   ESP32 → API  :  CMD:PING\n
+ *   API   → ESP32:  RES:PONG\n
+ *
+ *   ESP32 → API  :  CMD:AUTH:{finger_id}\n
+ *   API   → ESP32:  RES:AUTH:OK:{nome}  |  RES:AUTH:DENIED:{motivo}\n
+ *
+ *   ESP32 → API  :  CMD:ENTITIES\n
+ *   API   → ESP32:  RES:ENTITIES:{n}|{id}:{sigla}|...\n
+ *
+ *   ESP32 → API  :  CMD:VOTE:{finger_id}:{entity_id}\n
+ *   API   → ESP32:  RES:VOTE:OK  |  RES:VOTE:ERROR:{motivo}\n
+ *
+ *   API   → ESP32:  CMD:ENROLL:{slot}\n          (inicia enrolamento)
+ *   ESP32 → API  :  RES:ENROLL:OK:{slot}\n       (sucesso)
+ *   ESP32 → API  :  RES:ENROLL:ERROR:{motivo}\n  (falha)
+ *
+ *   API   → ESP32:  CMD:VOTE_SCAN:{entity_id}\n  (votação iniciada pelo painel)
+ *   ESP32 → API  :  RES:VOTE_SCAN:OK:{nome}\n    (voto registado)
+ *   ESP32 → API  :  RES:VOTE_SCAN:ERROR:{motivo}\n
+ *
+ *   API   → ESP32:  CMD:IDENTIFY_SCAN\n            (apenas identificar eleitor)
+ *   ESP32 → API  :  RES:IDENTIFY_SCAN:OK:{finger}:{nome}\n
+ *   ESP32 → API  :  RES:IDENTIFY_SCAN:ERROR:{motivo}\n
+ */
+
+#include <Adafruit_Fingerprint.h>
+#include <LiquidCrystal_I2C.h>
+#include <Wire.h>
+
+// ================= HARDWARE =================
+#define RX_FINGER   16
+#define TX_FINGER   17
+
+#define LCD_SDA     21   // I2C SDA do LCD
+#define LCD_SCL     22   // I2C SCL do LCD
+
+#define BTN_NEXT    32   // navega para próxima entidade
+#define BTN_CONFIRM 33   // confirma voto
+#define BTN_PARTY_1 18   // botão físico do 1º partido
+#define BTN_PARTY_2 19   // botão físico do 2º partido
+#define BTN_PARTY_3 23   // botão físico do 3º partido
+
+#define LED_OK      25
+#define LED_ERROR   26
+
+#define API_TIMEOUT 5000
+#define FINGER_CAPTURE_TIMEOUT_MS 20000
+#define LCD_COLS 16
+
+int fingerBaud = 57600;
+bool sensorReady = false;
+unsigned long lastSensorRetryAt = 0;
+
+HardwareSerial fingerSerial(2);
+Adafruit_Fingerprint finger(&fingerSerial);
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+// ================= ENTIDADES =================
+struct Entidade {
+  int    id;
+  String sigla;
+};
+
+#define MAX_ENTIDADES 16
+Entidade entidades[MAX_ENTIDADES];
+int      numEntidades = 0;
+
+// ================= UTILITÁRIOS =================
+
+void piscarLED(int pino, int vezes = 1, int ms = 200) {
+  for (int i = 0; i < vezes; i++) {
+    digitalWrite(pino, HIGH); delay(ms);
+    digitalWrite(pino, LOW);  delay(ms);
+  }
+}
+
+char mapUtf8PairToAscii(uint8_t lead, uint8_t trail) {
+  if (lead == 0xC3) {
+    switch (trail) {
+      case 0xA1: case 0xA0: case 0xA2: case 0xA3: case 0xA4: return 'a'; // a acentuado
+      case 0x81: case 0x80: case 0x82: case 0x83: case 0x84: return 'A';
+      case 0xA7: return 'c'; // c cedilha
+      case 0x87: return 'C';
+      case 0xA9: case 0xAA: case 0xA8: case 0xAB: return 'e';
+      case 0x89: case 0x8A: case 0x88: case 0x8B: return 'E';
+      case 0xAD: case 0xAC: case 0xAE: case 0xAF: return 'i';
+      case 0x8D: case 0x8C: case 0x8E: case 0x8F: return 'I';
+      case 0xB3: case 0xB2: case 0xB4: case 0xB5: case 0xB6: return 'o';
+      case 0x93: case 0x92: case 0x94: case 0x95: case 0x96: return 'O';
+      case 0xBA: case 0xB9: case 0xBB: case 0xBC: return 'u';
+      case 0x9A: case 0x99: case 0x9B: case 0x9C: return 'U';
+      default: return '?';
+    }
+  }
+
+  // Caracteres comuns em nomes/strings sem equivalente no LCD
+  if (lead == 0xE2 && trail == 0x80) return '-';
+
+  return '?';
+}
+
+String toLcdAscii(const String& text) {
+  String out;
+  out.reserve(LCD_COLS);
+
+  for (int i = 0; i < text.length() && out.length() < LCD_COLS; i++) {
+    uint8_t c = (uint8_t)text[i];
+
+    if (c >= 32 && c <= 126) {
+      out += (char)c;
+      continue;
+    }
+
+    if (c == 0xC3 && i + 1 < text.length()) {
+      char mapped = mapUtf8PairToAscii(c, (uint8_t)text[i + 1]);
+      out += mapped;
+      i++;
+      continue;
+    }
+
+    // Descarta bytes UTF-8 restantes sem mapear para evitar lixo no LCD.
+    if ((c & 0xC0) == 0x80) continue;
+  }
+
+  while (out.length() < LCD_COLS) out += ' ';
+  return out;
+}
+
+void lcdWriteLine(uint8_t row, const String& text) {
+  lcd.setCursor(0, row);
+  lcd.print(toLcdAscii(text));
+}
+
+void lcdMsg(const String& linha1, const String& linha2 = "") {
+  static String prev1 = "";
+  static String prev2 = "";
+
+  if (linha1 == prev1 && linha2 == prev2) {
+    return;
+  }
+
+  lcd.clear();
+  lcdWriteLine(0, linha1);
+  lcdWriteLine(1, linha2);
+  prev1 = linha1;
+  prev2 = linha2;
+}
+
+const char* fingerCodeName(uint8_t code) {
+  switch (code) {
+    case FINGERPRINT_OK: return "OK";
+    case FINGERPRINT_PACKETRECIEVEERR: return "PACKET_REC_ERR";
+    case FINGERPRINT_NOFINGER: return "NO_FINGER";
+    case FINGERPRINT_IMAGEFAIL: return "IMAGE_FAIL";
+    case FINGERPRINT_IMAGEMESS: return "IMAGE_MESSY";
+    case FINGERPRINT_FEATUREFAIL: return "FEATURE_FAIL";
+    case FINGERPRINT_INVALIDIMAGE: return "INVALID_IMAGE";
+    case FINGERPRINT_ENROLLMISMATCH: return "ENROLL_MISMATCH";
+    case FINGERPRINT_BADLOCATION: return "BAD_LOCATION";
+    case FINGERPRINT_FLASHERR: return "FLASH_ERROR";
+    default: return "UNKNOWN";
+  }
+}
+
+int waitFingerImage(uint32_t timeoutMs) {
+  unsigned long start = millis();
+  uint8_t lastErr = FINGERPRINT_OK;
+  int packetErrCount = 0;
+
+  while (millis() - start < timeoutMs) {
+    uint8_t p = finger.getImage();
+    if (p == FINGERPRINT_OK) return FINGERPRINT_OK;
+    if (p == FINGERPRINT_NOFINGER) {
+      delay(30);
+      continue;
+    }
+
+    // Em AS608 podem ocorrer erros transitórios de pacote/imagem; tenta novamente.
+    if (p == FINGERPRINT_PACKETRECIEVEERR || p == FINGERPRINT_IMAGEFAIL) {
+      lastErr = p;
+      if (p == FINGERPRINT_PACKETRECIEVEERR) {
+        packetErrCount++;
+        if (packetErrCount >= 25) return FINGERPRINT_PACKETRECIEVEERR;
+      }
+      delay(80);
+      continue;
+    }
+
+    return p;
+  }
+
+  return (lastErr == FINGERPRINT_OK) ? 0xFF : lastErr;
+}
+
+bool initFingerprintSensor() {
+  const uint32_t baudCandidates[] = {57600, 115200, 38400, 19200, 9600};
+
+  for (uint8_t i = 0; i < sizeof(baudCandidates) / sizeof(baudCandidates[0]); i++) {
+    uint32_t baud = baudCandidates[i];
+
+    fingerSerial.end();
+    delay(50);
+    fingerSerial.begin(baud, SERIAL_8N1, RX_FINGER, TX_FINGER);
+    delay(180);
+    finger.begin(baud);
+    delay(180);
+
+    if (finger.verifyPassword()) {
+      fingerBaud = (int)baud;
+      sensorReady = true;
+      return true;
+    }
+  }
+
+  sensorReady = false;
+  return false;
+}
+
+int waitFingerImageWithRecovery(uint32_t timeoutMs) {
+  int p = waitFingerImage(timeoutMs);
+  if (p == FINGERPRINT_PACKETRECIEVEERR) {
+    // Se a comunicação caiu, tenta re-sincronizar sensor/UART e repetir.
+    if (initFingerprintSensor()) {
+      delay(50);
+      p = waitFingerImage(timeoutMs);
+    }
+  }
+  return p;
+}
+
+bool btnPressionado(int pino) {
+  if (!digitalRead(pino)) {
+    delay(50);
+    return !digitalRead(pino);
+  }
+  return false;
+}
+
+bool comandoSerialPendente() {
+  return Serial.available() > 0;
+}
+
+// ================= SERIAL PROTOCOL =================
+
+String enviarComando(const String& cmd) {
+  Serial.println(cmd);
+  Serial.flush();
+  unsigned long inicio = millis();
+  while (millis() - inicio < API_TIMEOUT) {
+    if (Serial.available()) {
+      String r = Serial.readStringUntil('\n');
+      r.trim();
+      if (r.length() > 0) return r;
+    }
+  }
+  return "";
+}
+
+bool verificarConexao() {
+  return enviarComando("CMD:PING") == "RES:PONG";
+}
+
+// ================= ENTIDADES =================
+
+bool carregarEntidades() {
+  String res = enviarComando("CMD:ENTITIES");
+  if (!res.startsWith("RES:ENTITIES:")) return false;
+
+  String corpo = res.substring(13); // após "RES:ENTITIES:"
+  int n = corpo.toInt();
+  if (n == 0) return false;
+
+  // Parse robusto: "3|1:MPLA|2:UNITA|3:FNLA"
+  numEntidades = 0;
+  corpo = res.substring(13);
+  int pipe = corpo.indexOf('|');
+  if (pipe < 0) return false;
+  String resto = corpo.substring(pipe + 1); // "1:MPLA|2:UNITA|3:FNLA"
+
+  while (resto.length() > 0 && numEntidades < MAX_ENTIDADES) {
+    int nextPipe = resto.indexOf('|');
+    String item  = (nextPipe >= 0) ? resto.substring(0, nextPipe) : resto;
+
+    int colon = item.indexOf(':');
+    if (colon > 0) {
+      entidades[numEntidades].id    = item.substring(0, colon).toInt();
+      entidades[numEntidades].sigla = item.substring(colon + 1);
+      entidades[numEntidades].sigla.trim();
+      numEntidades++;
+    }
+
+    if (nextPipe < 0) break;
+    resto = resto.substring(nextPipe + 1);
+  }
+
+  return numEntidades > 0;
+}
+
+// ================= DIGITAL =================
+
+int capturarDigital() {
+  if (finger.getImage()        != FINGERPRINT_OK) return -1;
+  if (finger.image2Tz()        != FINGERPRINT_OK) return -1;
+  if (finger.fingerFastSearch() != FINGERPRINT_OK) return -1;
+  return finger.fingerID;
+}
+
+int capturarDigitalComTimeout(uint32_t timeoutMs, String* erroOut = nullptr) {
+  int p = waitFingerImageWithRecovery(timeoutMs);
+  if (p != FINGERPRINT_OK) {
+    if (erroOut != nullptr) {
+      if (p == 0xFF) {
+        *erroOut = "TIMEOUT";
+      } else {
+        *erroOut = String("IMAGEM_") + fingerCodeName((uint8_t)p);
+      }
+    }
+    return -1;
+  }
+
+  uint8_t conv = finger.image2Tz();
+  if (conv != FINGERPRINT_OK) {
+    if (conv == FINGERPRINT_PACKETRECIEVEERR && initFingerprintSensor()) {
+      conv = finger.image2Tz();
+    }
+
+    if (conv != FINGERPRINT_OK) {
+      if (erroOut != nullptr) *erroOut = String("CONVERT_") + fingerCodeName(conv);
+      return -1;
+    }
+  }
+
+  uint8_t search = finger.fingerFastSearch();
+  if (search == FINGERPRINT_OK) {
+    return finger.fingerID;
+  }
+
+  if (search == FINGERPRINT_NOTFOUND) {
+    if (erroOut != nullptr) *erroOut = "DIGITAL_NAO_CADASTRADA";
+    return -2;
+  }
+
+  if (search == FINGERPRINT_PACKETRECIEVEERR && initFingerprintSensor()) {
+    search = finger.fingerFastSearch();
+    if (search == FINGERPRINT_OK) return finger.fingerID;
+    if (search == FINGERPRINT_NOTFOUND) {
+      if (erroOut != nullptr) *erroOut = "DIGITAL_NAO_CADASTRADA";
+      return -2;
+    }
+  }
+
+  if (erroOut != nullptr) *erroOut = String("SEARCH_") + fingerCodeName(search);
+  return -1;
+}
+
+// ================= ENROLAMENTO =================
+
+void enrolarDigital(int slot) {
+  if (!sensorReady && !initFingerprintSensor()) {
+    Serial.println("RES:ENROLL:ERROR:SENSOR_OFFLINE");
+    lcdMsg("Erro sensor", "AS608 offline");
+    return;
+  }
+
+  lcdMsg("Enrolamento", "Coloque o dedo");
+
+  int p = waitFingerImageWithRecovery(FINGER_CAPTURE_TIMEOUT_MS);
+  if (p != FINGERPRINT_OK) {
+    if (p == 0xFF) {
+      Serial.println("RES:ENROLL:ERROR:IMAGEM_1_TIMEOUT");
+    } else {
+      Serial.println("RES:ENROLL:ERROR:IMAGEM_1_" + String(fingerCodeName((uint8_t)p)));
+    }
+    return;
+  }
+
+  uint8_t c1 = finger.image2Tz(1);
+  if (c1 != FINGERPRINT_OK) {
+    Serial.println("RES:ENROLL:ERROR:CONVERT_1_" + String(fingerCodeName(c1)));
+    return;
+  }
+
+  lcdMsg("Retire o dedo", "");
+  delay(1500);
+  while (finger.getImage() != FINGERPRINT_NOFINGER) delay(200);
+
+  lcdMsg("Coloque outra", "vez o dedo");
+
+  p = waitFingerImageWithRecovery(FINGER_CAPTURE_TIMEOUT_MS);
+  if (p != FINGERPRINT_OK) {
+    if (p == 0xFF) {
+      Serial.println("RES:ENROLL:ERROR:IMAGEM_2_TIMEOUT");
+    } else {
+      Serial.println("RES:ENROLL:ERROR:IMAGEM_2_" + String(fingerCodeName((uint8_t)p)));
+    }
+    return;
+  }
+
+  uint8_t c2 = finger.image2Tz(2);
+  if (c2 != FINGERPRINT_OK) {
+    Serial.println("RES:ENROLL:ERROR:CONVERT_2_" + String(fingerCodeName(c2)));
+    return;
+  }
+
+  if (finger.createModel() != FINGERPRINT_OK) {
+    Serial.println("RES:ENROLL:ERROR:MODELO_NAO_COINCIDE");
+    lcdMsg("Digitais nao", "coincidem!");
+    piscarLED(LED_ERROR, 3, 200);
+    delay(2000);
+    return;
+  }
+
+  if (finger.storeModel(slot) != FINGERPRINT_OK) {
+    Serial.println("RES:ENROLL:ERROR:ARMAZENAMENTO_FALHOU");
+    return;
+  }
+
+  String slotLine = "Slot: " + String(slot);
+  lcdMsg("Digital gravada!", slotLine.c_str());
+  piscarLED(LED_OK, 3, 200);
+  Serial.println("RES:ENROLL:OK:" + String(slot));
+  delay(2000);
+}
+
+// ================= AUTENTICAÇÃO =================
+
+bool autenticarNoServidor(int fingerID, String& nomeEleitor, String& motivoNegacao) {
+  String res = enviarComando("CMD:AUTH:" + String(fingerID));
+
+  if (res.startsWith("RES:AUTH:OK:")) {
+    nomeEleitor = res.substring(12);
+    nomeEleitor = nomeEleitor.substring(0, 16);
+    return true;
+  }
+
+  int idx = res.indexOf("DENIED:");
+  if (idx >= 0) {
+    motivoNegacao = res.substring(idx + 7);
+    String lcd2 = motivoNegacao.substring(0, 16);
+    lcdMsg("Nao autorizado", lcd2.c_str());
+  } else {
+    motivoNegacao = "NAO_AUTORIZADO";
+  }
+  return false;
+}
+
+// ================= SELECCIONAR ENTIDADE =================
+
+/**
+ * Mostra entidades no LCD e devolve o ID da entidade escolhida.
+ * BTN_NEXT    = próxima entidade (cicla)
+ * BTN_CONFIRM = votar nesta entidade
+ * Retorna -1 em caso de timeout (60 s).
+ */
+int seleccionarEntidade() {
+  if (numEntidades == 0) {
+    lcdMsg("Sem entidades!", "");
+    delay(2000);
+    return -1;
+  }
+
+  int idx = 0;
+  unsigned long inicio = millis();
+
+  while (millis() - inicio < 60000UL) {
+    if (comandoSerialPendente()) return -1;
+
+    String linha1 = "< " + entidades[idx].sigla + " >";
+    lcdMsg(linha1.c_str(), "Escolha painel");
+
+    delay(200);
+
+    unsigned long t = millis();
+    while (millis() - t < 3000) {
+      if (comandoSerialPendente()) return -1;
+
+      if (btnPressionado(BTN_CONFIRM)) {
+        return entidades[idx].id;
+      }
+      if (btnPressionado(BTN_NEXT)) {
+        idx = (idx + 1) % numEntidades;
+        break;
+      }
+      delay(20);
+    }
+  }
+
+  return -1; // timeout
+}
+
+/**
+ * Seleção manual por 3 botões físicos (partidos 1, 2 e 3).
+ * Se não houver 3 entidades carregadas, usa o fluxo antigo (NEXT/CONFIRM).
+ */
+int seleccionarEntidadeComBotoes() {
+  if (numEntidades >= 3) {
+    unsigned long inicio = millis();
+
+    while (millis() - inicio < 60000UL) {
+      if (comandoSerialPendente()) return -1;
+
+      lcdMsg("Escolha partido", "No painel");
+
+      if (btnPressionado(BTN_PARTY_1)) return entidades[0].id;
+      if (btnPressionado(BTN_PARTY_2)) return entidades[1].id;
+      if (btnPressionado(BTN_PARTY_3)) return entidades[2].id;
+
+      // Permite fallback para a navegacao classica, caso necessario.
+      if (btnPressionado(BTN_CONFIRM)) return entidades[0].id;
+      if (btnPressionado(BTN_NEXT)) return seleccionarEntidade();
+
+      delay(25);
+    }
+
+    return -1;
+  }
+
+  return seleccionarEntidade();
+}
+
+// ================= VOTAR =================
+
+bool registrarVoto(int fingerID, int entityID) {
+  String cmd = "CMD:VOTE:" + String(fingerID) + ":" + String(entityID);
+  String res = enviarComando(cmd);
+  return res.startsWith("RES:VOTE:OK");
+}
+
+void identificarEleitor() {
+  if (!sensorReady && !initFingerprintSensor()) {
+    Serial.println("RES:IDENTIFY_SCAN:ERROR:SENSOR_OFFLINE");
+    lcdMsg("Erro sensor", "AS608 offline");
+    return;
+  }
+
+  lcdMsg("Coloque o dedo", "para identificar");
+
+  String erroBio;
+  int fingerID = capturarDigitalComTimeout(45000UL, &erroBio);
+
+  if (fingerID < 0) {
+    String erro = erroBio.length() > 0 ? erroBio : "TIMEOUT";
+    Serial.println("RES:IDENTIFY_SCAN:ERROR:" + erro);
+
+    if (erro == "DIGITAL_NAO_CADASTRADA") {
+      lcdMsg("Digital nao", "cadastrada");
+    } else if (erro == "TIMEOUT") {
+      lcdMsg("Tempo esgotado", "");
+    } else {
+      lcdMsg("Falha leitura", "digital");
+    }
+
+    piscarLED(LED_ERROR, 2, 200);
+    return;
+  }
+
+  String nomeEleitor;
+  String motivoNegacao;
+  if (!autenticarNoServidor(fingerID, nomeEleitor, motivoNegacao)) {
+    motivoNegacao.replace(":", "-");
+    motivoNegacao.replace("\n", " ");
+    motivoNegacao.replace("\r", " ");
+    Serial.println("RES:IDENTIFY_SCAN:ERROR:" + motivoNegacao);
+    piscarLED(LED_ERROR, 2, 200);
+    return;
+  }
+
+  nomeEleitor.replace(":", "-");
+  nomeEleitor.replace("\n", " ");
+  nomeEleitor.replace("\r", " ");
+  Serial.println("RES:IDENTIFY_SCAN:OK:" + String(fingerID) + ":" + nomeEleitor);
+}
+
+// ================= VOTAÇÃO COM ENTIDADE PRÉ-DEFINIDA (VOTE_SCAN) =================
+
+/**
+ * Chamado quando a API envia CMD:VOTE_SCAN:{entityId}.
+ * Lê a impressão digital, autentica o eleitor e regista o voto.
+ * Responde com RES:VOTE_SCAN:OK:{nomeEleitor} ou RES:VOTE_SCAN:ERROR:{motivo}.
+ */
+void votarComEntidadePredefinida(int entityID) {
+  lcdMsg("Coloque o dedo", "para votar");
+
+  String erroBio;
+  int fingerID = capturarDigitalComTimeout(45000UL, &erroBio);
+
+  if (fingerID < 0) {
+    if (erroBio == "DIGITAL_NAO_CADASTRADA") {
+      lcdMsg("Digital nao", "cadastrada");
+    } else {
+      lcdMsg("Tempo esgotado", "");
+    }
+
+    piscarLED(LED_ERROR, 3, 200);
+    Serial.println("RES:VOTE_SCAN:ERROR:" + (erroBio.length() > 0 ? erroBio : "TIMEOUT"));
+    delay(2000);
+    return;
+  }
+
+  lcdMsg("Verificando...", "");
+
+  String nomeEleitor;
+  String motivoNegacao;
+  if (!autenticarNoServidor(fingerID, nomeEleitor, motivoNegacao)) {
+    piscarLED(LED_ERROR, 3, 200);
+    motivoNegacao.replace(":", "-");
+    motivoNegacao.replace("\n", " ");
+    motivoNegacao.replace("\r", " ");
+    Serial.println("RES:VOTE_SCAN:ERROR:" + motivoNegacao);
+    delay(2000);
+    return;
+  }
+
+  lcdMsg("Registando...", nomeEleitor.c_str());
+
+  if (!registrarVoto(fingerID, entityID)) {
+    piscarLED(LED_ERROR, 3, 200);
+    Serial.println("RES:VOTE_SCAN:ERROR:ERRO_REGISTO");
+    delay(2000);
+    return;
+  }
+
+  lcdMsg("Voto registado!", nomeEleitor.c_str());
+  piscarLED(LED_OK, 3, 300);
+
+  // Sanitiza o nome (remove ':' e '\n') antes de enviar
+  nomeEleitor.replace(":", "-");
+  nomeEleitor.replace("\n", " ");
+  nomeEleitor.replace("\r", " ");
+
+  Serial.println("RES:VOTE_SCAN:OK:" + nomeEleitor);
+  delay(3000);
+}
+
+// ================= SETUP =================
+
+void setup() {
+  Serial.begin(115200);
+  delay(500);
+
+  pinMode(BTN_NEXT,    INPUT_PULLUP);
+  pinMode(BTN_CONFIRM, INPUT_PULLUP);
+  pinMode(BTN_PARTY_1, INPUT_PULLUP);
+  pinMode(BTN_PARTY_2, INPUT_PULLUP);
+  pinMode(BTN_PARTY_3, INPUT_PULLUP);
+  pinMode(LED_OK,      OUTPUT);
+  pinMode(LED_ERROR,   OUTPUT);
+  digitalWrite(LED_OK,    LOW);
+  digitalWrite(LED_ERROR, LOW);
+
+  Wire.begin(LCD_SDA, LCD_SCL);
+  lcd.init();
+  lcd.backlight();
+
+  lcdMsg("A iniciar", "sensor...");
+  delay(1200);
+
+  if (!initFingerprintSensor()) {
+    lcdMsg("Erro sensor", "AS608 offline");
+    Serial.println("RES:ENROLL:ERROR:SENSOR_OFFLINE");
+    lastSensorRetryAt = millis();
+  } else {
+    Serial.println("RES:SENSOR:OK:BAUD:" + String(fingerBaud));
+  }
+
+  lcdMsg("Bem-vindo ao SVB", "");
+  delay(2000);
+
+  lcdMsg("Aguard. API...", "");
+  while (!verificarConexao()) delay(1000);
+
+  lcdMsg("Sistema Pronto", "");
+  delay(1000);
+}
+
+// ================= LOOP =================
+
+void loop() {
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd.startsWith("CMD:ENROLL:")) {
+      int slot = cmd.substring(11).toInt();
+      if (slot < 1 || slot > 127) {
+        Serial.println("RES:ENROLL:ERROR:SLOT_INVALIDO");
+      } else {
+        enrolarDigital(slot);
+      }
+      return;
+    }
+
+    if (cmd.startsWith("CMD:VOTE_SCAN:")) {
+      int entityID = cmd.substring(14).toInt();
+      if (entityID <= 0) {
+        Serial.println("RES:VOTE_SCAN:ERROR:ENTIDADE_INVALIDA");
+      } else {
+        votarComEntidadePredefinida(entityID);
+      }
+      return;
+    }
+
+    if (cmd == "CMD:IDENTIFY_SCAN") {
+      identificarEleitor();
+      return;
+    }
+
+    if (cmd.startsWith("INFO:")) {
+      String nomeInfo = cmd.substring(5, 21);
+      lcdMsg("Novo Eleitor:", nomeInfo.c_str());
+      delay(3000);
+      return;
+    }
+  }
+
+  // Modo votação
+  if (!sensorReady) {
+    lcdMsg("Sensor offline", "Verif. cabos");
+
+    if (millis() - lastSensorRetryAt > 5000UL) {
+      lastSensorRetryAt = millis();
+      if (initFingerprintSensor()) {
+        Serial.println("RES:SENSOR:RECOVERED:BAUD:" + String(fingerBaud));
+        lcdMsg("Sensor OK", "Sistema pronto");
+        delay(1200);
+      }
+    }
+
+    delay(100);
+    return;
+  }
+
+  lcdMsg("Coloque o dedo", "");
+
+  int fingerID = capturarDigital();
+  if (fingerID < 0) return;
+
+  lcdMsg("Verificando...", "");
+
+  String nomeEleitor;
+  String motivoNegacao;
+  if (!autenticarNoServidor(fingerID, nomeEleitor, motivoNegacao)) {
+    piscarLED(LED_ERROR, 3, 200);
+    delay(2000);
+    return;
+  }
+
+  lcdMsg("Bem-vindo!", nomeEleitor.c_str());
+  delay(1500);
+
+  // Carrega entidades da API
+  lcdMsg("A carregar...", "entidades");
+  if (!carregarEntidades()) {
+    lcdMsg("Sem entidades", "cadastradas!");
+    piscarLED(LED_ERROR, 3, 200);
+    delay(2000);
+    return;
+  }
+
+  // Seleccionar entidade (3 botoes fisicos dos 3 partidos)
+  int entityID = seleccionarEntidadeComBotoes();
+
+  if (entityID < 0) {
+    lcdMsg("Cancelado", "");
+    piscarLED(LED_ERROR, 2, 200);
+    delay(2000);
+    return;
+  }
+
+  lcdMsg("Registando...", "");
+
+  if (registrarVoto(fingerID, entityID)) {
+    lcdMsg("Voto registado!", "Obrigado!");
+    piscarLED(LED_OK, 3, 300);
+  } else {
+    lcdMsg("Erro no server", "Tente novamente");
+    piscarLED(LED_ERROR, 5, 150);
+  }
+
+  delay(3000);
+}
+
