@@ -543,13 +543,18 @@ void identificarEleitor() {
   String erroBio;
   int fingerID = capturarDigitalComTimeout(45000UL, &erroBio);
 
+  if (fingerID == -2) {
+    Serial.println("RES:IDENTIFY_SCAN:ERROR:DIGITAL_NAO_CADASTRADA");
+    lcdMsg("Digital nao", "reconhecida");
+    piscarLED(LED_ERROR, 2, 200);
+    return;
+  }
+
   if (fingerID < 0) {
     String erro = erroBio.length() > 0 ? erroBio : "TIMEOUT";
     Serial.println("RES:IDENTIFY_SCAN:ERROR:" + erro);
 
-    if (erro == "DIGITAL_NAO_CADASTRADA") {
-      lcdMsg("Digital nao", "cadastrada");
-    } else if (erro == "TIMEOUT") {
+    if (erro == "TIMEOUT") {
       lcdMsg("Tempo esgotado", "");
     } else {
       lcdMsg("Falha leitura", "digital");
@@ -589,11 +594,20 @@ void votarComEntidadePredefinida(int entityID) {
   String erroBio;
   int fingerID = capturarDigitalComTimeout(45000UL, &erroBio);
 
+  if (fingerID == -2) {
+    // Digital lida mas não encontrada no sensor — pode ser dedo mal colocado
+    lcdMsg("Digital nao", "reconhecida");
+    piscarLED(LED_ERROR, 3, 200);
+    Serial.println("RES:VOTE_SCAN:ERROR:DIGITAL_NAO_CADASTRADA");
+    delay(2000);
+    return;
+  }
+
   if (fingerID < 0) {
-    if (erroBio == "DIGITAL_NAO_CADASTRADA") {
-      lcdMsg("Digital nao", "cadastrada");
-    } else {
+    if (erroBio == "TIMEOUT") {
       lcdMsg("Tempo esgotado", "");
+    } else {
+      lcdMsg("Falha leitura", "digital");
     }
 
     piscarLED(LED_ERROR, 3, 200);
@@ -607,6 +621,9 @@ void votarComEntidadePredefinida(int entityID) {
   String nomeEleitor;
   String motivoNegacao;
   if (!autenticarNoServidor(fingerID, nomeEleitor, motivoNegacao)) {
+    // Mostra o motivo real da API (ex: "Voto ja realizado")
+    String lcd2 = motivoNegacao.substring(0, 16);
+    lcdMsg("Nao autorizado", lcd2.c_str());
     piscarLED(LED_ERROR, 3, 200);
     motivoNegacao.replace(":", "-");
     motivoNegacao.replace("\n", " ");

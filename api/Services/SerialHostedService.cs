@@ -213,7 +213,7 @@ public class SerialHostedService : BackgroundService
                     ReadTimeout = 200,
                     WriteTimeout = 500,
                     NewLine = "\n",
-                    DtrEnable = true,
+                    DtrEnable = false,
                     RtsEnable = false,
                     Handshake = Handshake.None
                 };
