@@ -41,7 +41,7 @@ public class VoterController : ControllerBase
     {
         try
         {
-            var voter = await _svc.RegisterVoterAsync(req.Name, req.BI);
+            var voter = await _svc.RegisterVoterAsync(req.Name, req.BI, req.CartaoEleitor);
             return CreatedAtAction(nameof(Get), new { id = voter.Id }, voter);
         }
         catch (InvalidOperationException ex)
@@ -95,4 +95,4 @@ public class VoterController : ControllerBase
     }
 }
 
-public record RegisterVoterRequest(string Name, string BI);
+public record RegisterVoterRequest(string Name, string BI, string? CartaoEleitor);

@@ -90,7 +90,7 @@ public class VoteService
             .Include(v => v.Vote)
             .FirstOrDefaultAsync(v => v.BI == bi);
 
-    public async Task<Voter> RegisterVoterAsync(string name, string bi)
+    public async Task<Voter> RegisterVoterAsync(string name, string bi, string? cartaoEleitor)
     {
         if (await _db.Voters.AnyAsync(v => v.BI == bi))
             throw new InvalidOperationException($"O BI '{bi}' já está registado.");
@@ -98,7 +98,11 @@ public class VoteService
         if (await _db.Voters.AnyAsync(v => v.Name.ToLower() == name.ToLower()))
             throw new InvalidOperationException($"O eleitor '{name}' já está cadastrado.");
 
-        var voter = new Voter { Name = name, BI = bi };
+        if (!string.IsNullOrWhiteSpace(cartaoEleitor) &&
+            await _db.Voters.AnyAsync(v => v.CartaoEleitor == cartaoEleitor))
+            throw new InvalidOperationException($"O cartão de eleitor '{cartaoEleitor}' já está registado.");
+
+        var voter = new Voter { Name = name, BI = bi, CartaoEleitor = cartaoEleitor ?? string.Empty };
         _db.Voters.Add(voter);
         await _db.SaveChangesAsync();
         return voter;

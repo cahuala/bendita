@@ -13,6 +13,9 @@ public class Voter
     [JsonPropertyName("bi")]
     public string BI { get; set; } = string.Empty;
 
+    [JsonPropertyName("cartaoEleitor")]
+    public string CartaoEleitor { get; set; } = string.Empty;
+
     [JsonPropertyName("fingerId")]
     public int? FingerId { get; set; }
 

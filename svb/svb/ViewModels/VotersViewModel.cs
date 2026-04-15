@@ -37,6 +37,9 @@ public partial class VotersViewModel : ObservableObject
     [ObservableProperty]
     private string _newBI = string.Empty;
 
+    [ObservableProperty]
+    private string _newCartaoEleitor = string.Empty;
+
     // ── Aviso de duplicado em tempo real ─────────────────────
     [ObservableProperty]
     private string _duplicateWarning = string.Empty;
@@ -63,6 +66,7 @@ public partial class VotersViewModel : ObservableObject
     // Verificação em tempo real conforme o utilizador escreve
     partial void OnNewBIChanged(string value) => CheckDuplicates();
     partial void OnNewNameChanged(string value) => CheckDuplicates();
+    partial void OnNewCartaoEleitorChanged(string value) => CheckDuplicates();
 
     private void CheckDuplicates()
     {
@@ -78,6 +82,14 @@ public partial class VotersViewModel : ObservableObject
             Voters.Any(v => v.Name.Trim().ToLower() == NewName.Trim().ToLower()))
         {
             DuplicateWarning   = $"Já existe um eleitor com o nome «{NewName.Trim()}».";
+            HasDuplicateWarning = true;
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(NewCartaoEleitor) &&
+            Voters.Any(v => v.CartaoEleitor.Trim().ToLower() == NewCartaoEleitor.Trim().ToLower()))
+        {
+            DuplicateWarning   = $"Já existe um eleitor com o cartão «{NewCartaoEleitor.Trim()}».";
             HasDuplicateWarning = true;
             return;
         }
@@ -126,6 +138,11 @@ public partial class VotersViewModel : ObservableObject
             SetFeedback("Número do BI é obrigatório.", true);
             return;
         }
+        if (string.IsNullOrWhiteSpace(NewCartaoEleitor))
+        {
+            SetFeedback("Número do Cartão de Eleitor é obrigatório.", true);
+            return;
+        }
 
         // Verificação local anti-duplicado
         if (Voters.Any(v => v.BI.Trim().ToLower() == NewBI.Trim().ToLower()))
@@ -138,15 +155,21 @@ public partial class VotersViewModel : ObservableObject
             SetFeedback($"Já existe um eleitor com o nome «{NewName.Trim()}».", true);
             return;
         }
+        if (Voters.Any(v => v.CartaoEleitor.Trim().ToLower() == NewCartaoEleitor.Trim().ToLower()))
+        {
+            SetFeedback($"Já existe um eleitor com o cartão «{NewCartaoEleitor.Trim()}».", true);
+            return;
+        }
 
         IsLoading = true;
-        var (ok, msg, voter) = await _api.RegisterVoterAsync(NewName.Trim(), NewBI.Trim());
+        var (ok, msg, voter) = await _api.RegisterVoterAsync(NewName.Trim(), NewBI.Trim(), NewCartaoEleitor.Trim());
         SetFeedback(ok ? $"Eleitor «{NewName.Trim()}» cadastrado com sucesso." : msg, !ok);
 
         if (ok)
         {
             NewName = string.Empty;
             NewBI   = string.Empty;
+            NewCartaoEleitor = string.Empty;
             await LoadAsync();
         }
         IsLoading = false;

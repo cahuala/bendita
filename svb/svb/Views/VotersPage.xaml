@@ -124,6 +124,9 @@
                                             FontSize="15"
                                             FontAttributes="Bold" />
                                         <Label
+                                            Text="{Binding CartaoEleitor, StringFormat='Cartão: {0}'}"
+                                            Style="{StaticResource Caption}" />
+                                        <Label
                                             Text="{Binding RegisteredAt, StringFormat='Cadastrado: {0:dd/MM/yyyy}'}"
                                             Style="{StaticResource Caption}" />
                                         <Label
@@ -181,7 +184,7 @@
                             </Frame>
                             <VerticalStackLayout VerticalOptions="Center" Spacing="1">
                                 <Label Text="Dados do Eleitor" Style="{StaticResource SectionHeader}" />
-                                <Label Text="Nome completo e Bilhete de Identidade" Style="{StaticResource Caption}" />
+                                <Label Text="Nome completo, BI e Cartão de Eleitor" Style="{StaticResource Caption}" />
                             </VerticalStackLayout>
                         </Grid>
 
@@ -229,6 +232,17 @@
                                 <Entry
                                     Placeholder="Ex: 007328941LA041"
                                     Text="{Binding NewBI}"
+                                    HeightRequest="36" />
+                            </Frame>
+                        </VerticalStackLayout>
+
+                        <!-- Campo Cartão de Eleitor -->
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="CARTÃO DE ELEITOR" Style="{StaticResource FieldLabel}" />
+                            <Frame Style="{StaticResource FieldFrame}">
+                                <Entry
+                                    Placeholder="Ex: 000123456"
+                                    Text="{Binding NewCartaoEleitor}"
                                     HeightRequest="36" />
                             </Frame>
                         </VerticalStackLayout>

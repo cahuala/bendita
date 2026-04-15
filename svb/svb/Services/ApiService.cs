@@ -26,11 +26,11 @@ public class ApiService
         catch { return null; }
     }
 
-    public async Task<(bool Ok, string Message, Voter? Voter)> RegisterVoterAsync(string name, string bi)
+    public async Task<(bool Ok, string Message, Voter? Voter)> RegisterVoterAsync(string name, string bi, string cartaoEleitor)
     {
         try
         {
-            var res = await _http.PostAsJsonAsync("voters", new { name, bi });
+            var res = await _http.PostAsJsonAsync("voters", new { name, bi, cartaoEleitor });
             if (res.IsSuccessStatusCode)
             {
                 var voter = await res.Content.ReadFromJsonAsync<Voter>(_json);

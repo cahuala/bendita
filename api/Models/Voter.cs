@@ -9,6 +9,9 @@ public class Voter
     /// <summary>Número do Bilhete de Identidade.</summary>
     public string BI { get; set; } = string.Empty;
 
+    /// <summary>Número do Cartão de Eleitor.</summary>
+    public string CartaoEleitor { get; set; } = string.Empty;
+
     /// <summary>ID do slot no sensor biométrico (1-127). Nulo até ao registo da impressão digital.</summary>
     public int? FingerId { get; set; }
 
